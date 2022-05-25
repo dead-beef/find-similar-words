@@ -1,0 +1,7 @@
+edition = "2021"
+max_width = 80
+match_block_trailing_comma = true
+newline_style = "Unix"
+#overflow_delimited_expr = true
+#group_imports = "StdExternalCrate"
+use_field_init_shorthand = true

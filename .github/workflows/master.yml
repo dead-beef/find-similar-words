@@ -1,0 +1,86 @@
+name: Master
+
+on:
+  push:
+    branches: [master]
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ${{ github.head_ref }}.${{ github.sha }}.master
+  cancel-in-progress: true
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+
+      - name: Detect changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            workspace:
+              - '.github/workflows/pr-validation.yml'
+              - 'src/**'
+              - 'tests/**'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+              - 'rustfmt.toml'
+
+      - name: Get variables (rustc version, commit hash)
+        id: get-variables
+        run: |
+          echo "::set-output name=rustcversion::$(rustc --version | sed -r 's/\s/-/g;s/[()]//g')"
+          echo "::set-output name=commitsha::${GITHUB_SHA}"
+
+      - name: Workspace cache
+        uses: actions/cache@v2
+        id: workspace-cache
+        env:
+          cache-name: workspace-cache
+        with:
+          path: |
+            ~/.cargo/bin
+            ./target
+          key: ${{ runner.os }}-rustc-${{ steps.get-variables.outputs.rustcversion }}-hash-${{ hashFiles('~/.cargo/bin/**') }}-workspace-${{ steps.get-variables.outputs.commitsha }}
+          restore-keys: |
+            ${{ runner.os }}-rustc-${{ steps.get-variables.outputs.rustcversion }}-hash-${{ hashFiles('~/.cargo/bin/**') }}-workspace-
+
+      - name: Install rust
+        if: ${{ steps.changes.outputs.workspace == 'true' && steps.workspace-cache.outputs.cache-hit != 'true' }}
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+      - name: Install espeak
+        run: sudo apt-get install -y espeak-ng espeak-data libespeak-ng-dev
+
+      - name: Install clang
+        run: sudo apt-get install -y clang llvm llvm-runtime libclang-dev
+
+      - name: Install project dependencies
+        if: ${{ steps.changes.outputs.workspace == 'true' && steps.workspace-cache.outputs.cache-hit != 'true' }}
+        run: cargo install --path . --force
+
+      - name: Check formatting
+        if: steps.changes.outputs.workspace == 'true'
+        run: cargo fmt -- --check
+
+      - name: Lint sources
+        if: steps.changes.outputs.workspace == 'true'
+        run: cargo clippy -- -D warnings
+
+      - name: Build test
+        if: steps.changes.outputs.workspace == 'true'
+        run: cargo build
+
+      - name: Test
+        if: steps.changes.outputs.workspace == 'true'
+        run: cargo test
